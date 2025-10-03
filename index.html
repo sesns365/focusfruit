@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>水果攤專注力圓圈配對 - 市場偵探</title>
+    <!-- 載入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 設定字體與整體排版 */
+        body {
+            font-family: 'Inter', 'Noto Sans TC', sans-serif;
+            background-color: #f0f4f8;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh; /* 確保主體至少填滿視窗高度 */
+            padding: 16px;
+        }
+
+        /* 顏色圓圈按鈕基本樣式 */
+        .color-circle {
+            flex-shrink: 0;
+            width: 40px; /* 略微加大 */
+            height: 40px;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: transform 0.1s, box-shadow 0.1s, border 0.2s;
+            border: 4px solid transparent; 
+        }
+        
+        /* 選中時的樣式 (移除藍色光暈，僅保留藍色邊框) */
+        .color-circle.selected {
+            transform: scale(1.1);
+            border-color: #1d4ed8; 
+        }
+
+        /* 答案錯誤/正確樣式 */
+        .color-circle.error { border-color: #ef4444; box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.4); }
+        .color-circle.correct { border-color: #10b981; box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.4); }
+
+        /* 攤位複雜度樣式 - 使用 CSS 模擬完整且複雜的攤販背景 */
+        .busy-scene {
+            position: relative;
+            height: 100%; /* 確保填滿父容器高度 */
+            overflow: hidden; 
+            background-color: #5d4037; 
+        }
+        
+        /* 確保左右內容區塊高度一致 */
+        #game-container {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1.5rem;
+            /* 讓 game-container 佔據整個頁面可用的垂直空間 */
+            flex-grow: 1; 
+        }
+        
+        /* 針對大螢幕的 2/3 vs 1/3 佈局 */
+        @media (min-width: 1024px) {
+            #game-container {
+                grid-template-columns: 2fr 1fr; /* 2/3 vs 1/3 比例 */
+            }
+        }
+
+        /* 左側容器確保內部場景填滿高度 */
+        #source-display {
+            display: flex;
+            flex-direction: column;
+            /* 讓左側高度與右側內容高度一致 */
+            flex-grow: 1;
+        }
+        
+        /* 左側場景容器佔據剩餘空間 */
+        #busy-scene {
+            flex-grow: 1; 
+            position: relative;
+        }
+
+
+        /* 核心干擾物和目標線索的通用樣式 */
+        .distraction-item { 
+            position: absolute;
+            font-size: 3rem; 
+            opacity: 0.85; /* 輕微提高透明度，模擬底圖融入 */
+            pointer-events: none;
+            line-height: 1; 
+            text-shadow: none; 
+        }
+        
+        /* 核心線索容器：水果與圓圈相鄰排列 (用於定位群組) */
+        .fruit-clue {
+            position: absolute; 
+            display: block; 
+            width: 50px; 
+            height: 50px;
+            line-height: 1; 
+            pointer-events: none; 
+        }
+
+        /* 核心線索：水果 Emoji (位於群組內) */
+        .fruit-clue .fruit-emoji {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            line-height: 1; 
+            font-size: 3rem; 
+            text-shadow: none;
+            z-index: 50; 
+        }
+
+        /* 水果旁邊的核心線索圓圈 (線索) - 固定偏移，確保歸屬清晰 */
+        .fruit-clue .color-bubble {
+            position: absolute; 
+            top: 5%;      /* 固定在群組右上角 */
+            right: -10px; 
+            width: 25px; 
+            height: 25px; 
+            border-radius: 50%;
+            border: 3px solid #000; 
+            box-shadow: 0 0 3px rgba(255, 255, 255, 0.8); 
+            z-index: 51; 
+        }
+
+        /* 單色滑動選單樣式 */
+        .single-color-picker {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            padding: 8px;
+            background-color: #f3f4f6;
+            border-radius: 12px;
+            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+            width: 140px; 
+        }
+        
+        .arrow-button {
+            background-color: #e5e7eb;
+            color: #374151;
+            padding: 6px 10px;
+            border-radius: 8px;
+            font-size: 1.25rem;
+            font-weight: bold;
+            line-height: 1;
+            transition: background-color 0.15s, transform 0.15s;
+        }
+        .arrow-button:hover:not(:disabled) {
+            background-color: #d1d5db;
+            transform: scale(1.05);
+        }
+        
+        /* TTS 載入動畫 (不再使用) */
+        .tts-loading:after {
+            content: '.';
+            animation: loading 1s steps(5, end) infinite;
+        }
+        @keyframes loading {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60% { content: '...'; }
+            80%, 100% { content: '....'; }
+        }
+        
+        /* Modal 樣式 */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: rgba(0, 0, 0, 0.6);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            visibility: hidden;
+            opacity: 0;
+            transition: opacity 0.3s, visibility 0.3s;
+        }
+        .modal-overlay.open {
+            visibility: visible;
+            opacity: 1;
+        }
+        
+        /* 右側可點擊圖案樣式 */
+        .target-label {
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+        .target-label:hover {
+            transform: scale(1.05);
+        }
+
+        /* 調整主容器以佔用更多垂直空間，減少滾動 */
+        #app {
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+        }
+    </style>
+</head>
+<body class="min-h-screen"> <!-- 確保 body 佔滿高度 -->
+
+    <div id="app" class="w-full max-w-6xl bg-white p-4 sm:p-8 rounded-2xl shadow-2xl border border-gray-100 flex-grow">
+
+        <h1 class="text-3xl sm:text-4xl font-extrabold text-gray-800 mb-4 text-center">
+            👨‍🍳 廚師巴特的宴會挑戰：專注力任務 🧠
+        </h1>
+        
+        <!-- 移除原頂部故事區，改為在 Modal 中顯示 -->
+        <div class="text-xl font-bold text-center text-blue-600 mb-6">
+            <span id="level-display">關卡載入中...</span>
+        </div>
+        
+        
+        <!-- 調整：在 lg 螢幕上，左側佔 2/3 寬度，右側佔 1/3 寬度 -->
+        <div id="game-container" class="gap-6 sm:gap-10">
+            
+            <!-- 左側：複雜又分散注意力的場景（資訊來源） -->
+            <div id="source-display" class="p-0 bg-yellow-50 rounded-xl border-4 border-yellow-300 shadow-inner overflow-hidden">
+                <h2 id="source-title" class="text-xl sm:text-2xl font-bold text-yellow-800 p-4 border-b border-yellow-300 bg-yellow-100">
+                    目標：找出右側目標物旁邊的顏色標籤
+                </h2>
+                
+                <div id="busy-scene" class="busy-scene">
+                    <div id="mixed-items-container" class="absolute top-0 left-0 w-full h-full">
+                    </div>
+                </div>
+                
+            </div>
+
+            <!-- 右側：挑戰區 (作答區) - 寬度縮小 -->
+            <div id="answer-panel" class="p-4 sm:p-6 bg-blue-50 rounded-xl border-4 border-blue-300 shadow-inner flex flex-col flex-grow">
+                <h2 class="text-xl sm:text-2xl font-bold text-blue-800 mb-4 border-b pb-2">
+                    右側：挑戰序列（請點擊箭頭選出正確的顏色）
+                </h2>
+                <div id="challenge-input" class="space-y-3"> <!-- 修正: space-y-4 改為 space-y-3，更緊湊 -->
+                    <!-- 挑戰目標和顏色選單將由 JS 渲染至此 -->
+                </div>
+
+                <div class="mt-8 flex flex-col sm:flex-row gap-4">
+                    <button id="check-button" class="flex-1 bg-green-600 text-white py-3 rounded-xl font-bold text-lg hover:bg-green-700 transition duration-150 shadow-md shadow-green-300 active:shadow-none active:translate-y-0.5 disabled:bg-gray-400">
+                        ✅ 檢查答案
+                    </button>
+                    <button id="reset-button" class="sm:w-auto bg-gray-300 text-gray-800 py-3 px-6 rounded-xl font-bold text-lg hover:bg-gray-400 transition duration-150 shadow-md active:shadow-none active:translate-y-0.5">
+                        🔄 重玩本關
+                    </button>
+                </div>
+                
+                <div id="message-box" class="mt-6 p-4 text-center text-xl font-semibold rounded-lg hidden border-2">
+                    <!-- 遊戲訊息與結果顯示區 (僅用於錯誤提示) -->
+                </div>
+            </div>
+
+        </div>
+        
+    </div>
+    
+    <!-- 故事說明 Modal (新流程：開場就彈出) -->
+    <div id="story-modal" class="modal-overlay open">
+        <div id="story-modal-content" class="bg-white p-8 rounded-3xl shadow-2xl text-center max-w-md w-full transform scale-100 transition-transform duration-300">
+            <h3 id="modal-story-title" class="text-3xl font-extrabold text-purple-700 mb-4">任務說明</h3>
+            <p id="modal-story-text" class="text-xl text-gray-700 mb-6"></p>
+            <button id="story-modal-tts-button" class="bg-purple-500 text-white py-2 px-4 rounded-full font-bold text-sm hover:bg-purple-600 transition duration-150 mb-4 disabled:bg-gray-400">
+                🔊 報讀故事
+            </button>
+            <button id="start-challenge-button" class="bg-blue-600 text-white py-3 px-8 rounded-xl font-bold text-lg hover:bg-blue-700 transition duration-150 shadow-lg shadow-blue-300">
+                🚀 開始挑戰
+            </button>
+        </div>
+    </div>
+
+    <!-- 成功破關 Modal 畫面 -->
+    <div id="success-modal" class="modal-overlay">
+        <div id="modal-content" class="bg-white p-8 rounded-3xl shadow-2xl text-center max-w-sm w-full transform scale-90 transition-transform duration-300">
+            <div class="text-7xl mb-4 animate-bounce">🏆</div>
+            <h3 id="modal-title" class="text-3xl font-extrabold text-green-700 mb-2"></h3>
+            <p id="modal-message" class="text-xl text-gray-700 mb-6"></p>
+             <button id="modal-tts-button" class="bg-purple-500 text-white py-2 px-4 rounded-full font-bold text-sm hover:bg-purple-600 transition duration-150 mb-4 disabled:bg-gray-400">
+                🔊 報讀故事
+            </button>
+            <button id="modal-action-button" class="bg-blue-600 text-white py-3 px-8 rounded-xl font-bold text-lg hover:bg-blue-700 transition duration-150 shadow-lg shadow-blue-300">
+                <!-- 按鈕文字將由 JS 設定 -->
+            </button>
+        </div>
+    </div>
+
+    <!-- 成功音效元素 (使用 Tone.js 模擬) -->
+    <script src="https://cdn.jsdelivr.net/npm/tone@14.7.71/build/Tone.min.js"></script>
+
+    <script>
+        // ----------------------------------------------------
+        // 1. 遊戲資料與設定
+        // ----------------------------------------------------
+
+        // 基礎目標數據 (名稱, Emoji/圖案)
+        const OBJECT_DATA = [
+            { type: 'fruit', name: '蘋果', emoji: '🍎' }, 
+            { type: 'fruit', name: '香蕉', emoji: '🍌' }, 
+            { type: 'fruit', name: '葡萄', emoji: '🍇' }, 
+            { type: 'fruit', name: '奇異果', emoji: '🥝' }, 
+            { type: 'fruit', name: '橘子', emoji: '🍊' }, 
+            { type: 'fruit', name: '藍莓', emoji: '🫐' }, 
+            { type: 'fruit', name: '草莓', emoji: '🍓' }, 
+            // 數學挑戰 (Level 2 - 需要至少 7 個獨特目標物)
+            { type: 'math', name: '餅乾', emoji: '🍪' }, 
+            { type: 'math', name: '糖果', emoji: '🍬' }, 
+            { type: 'math', name: '甜甜圈', emoji: '🍩' },
+            { type: 'math', name: '冰淇淋', emoji: '🍦' },
+            { type: 'math', name: '棒棒糖', emoji: '🍭' },
+            { type: 'math', name: '爆米花', emoji: '🍿' },
+            { type: 'math', name: '鬆餅', emoji: '🧇' }, 
+            // 烹飪工具 (Level 3)
+            { type: 'tool', name: '刀具', emoji: '🔪' }, 
+            { type: 'tool', name: '勺子', emoji: '🥄' }, 
+            { type: 'tool', name: '計時器', emoji: '⏱️' }, 
+            { type: 'tool', name: '爐灶', emoji: '🔥' }, 
+            { type: 'tool', name: '麵包機', emoji: '🍞' }, 
+            { type: 'tool', name: '磨具', emoji: '⚙️' }, 
+            { type: 'tool', name: '水壺', emoji: '🫖' }, 
+            // 食物 (已加工) (Level 4, 5)
+            { type: 'food', name: '蛋糕', emoji: '🍰' }, 
+            { type: 'food', name: '披薩', emoji: '🍕' }, 
+            { type: 'food', name: '漢堡', emoji: '🍔' }, 
+            { type: 'food', name: '沙拉', emoji: '🥗' }, 
+            { type: 'food', name: '壽司', emoji: '🍣' }, 
+            { type: 'food', name: '義大利麵', emoji: '🍝' }, 
+            { type: 'food', name: '燉菜', emoji: '🍲' }, 
+        ];
+
+        // 顏色選項 (Hex 值)
+        const COLOR_OPTIONS = [
+            { hex: '#ef4444', name: '紅色' },    
+            { hex: '#facc15', name: '黃色' },    
+            { hex: '#a855f7', name: '紫色' },    
+            { hex: '#4ade80', name: '綠色' },    
+            { hex: '#f97316', name: '橘色' },    
+            { hex: '#3b82f6', name: '藍色' },    
+            { hex: '#ec4899', name: '粉色' },    
+        ];
+        
+        // 額外干擾物
+        const DISTRACTOR_POOL = ['🛒', '💸', '📦', '🪜', '🧺', '🖊️', '🗒️', '🔔', '☂️', '🧻', '🪑', '🥤', '🥩', '🧀', '🐟', '🌶️', '🧅', '🥕', '🥦', '🥬', '🍆', '🥒', '🔨', '✂️', '🏷️', '🖍️', '🔋', '🔑', '🕰️', '🔦'];
+
+        const BG_COLOR_PALETTES = [
+            { main: '#5d4037', secondary: '#795548' }, // 採買市場/木板 (Level 1)
+            { main: '#2c3e50', secondary: '#34495e' }, // 結帳台/冷色調 (Level 2)
+            { main: '#38761d', secondary: '#6aa84f' }, // 準備台/綠色砧板 (Level 3)
+            { main: '#a64d79', secondary: '#d9a74a' }, // 烹飪區/火爐熱色調 (Level 4)
+            { main: '#4b0082', secondary: '#9400d3' }, // 上菜/紫色優雅 (Level 5)
+        ];
+        
+        // 關卡故事線
+        const LEVEL_CONFIGS = [
+            null, 
+            { level: 1, distractorCount: 20, totalItems: 27, title: "採購食材：水果攤上的緊急任務",
+              story: "👨‍🍳 廚師巴特準備一場盛大的宴會！首先，他來到混亂的水果攤。七種重要的水果都被標上了秘密顏色標籤。請你幫助巴特，在雜亂的攤位上找到這些水果旁邊的圓圈顏色，並在右側準確配對。", objectType: 'fruit' },
+            { level: 2, distractorCount: 30, totalItems: 37, title: "清點貨物：結帳台上的點心配對",
+              story: "💸 食材都買好了，但現在要在結帳前清點數量。你需要找到七個帶有標籤的**點心**，並將它們旁邊的**圓圈顏色**與右側的圖案準確配對。", objectType: 'math' },
+            { level: 3, distractorCount: 35, totalItems: 42, title: "宴會準備：廚具辨識與定位",
+              story: "🔪 回到廚房，現在要準備食材和工具。廚房裡堆滿了各種鍋碗瓢盆，七種關鍵的**廚房工具**也貼上了顏色標籤。你需要從雜亂的準備台上找出這些工具的顏色標籤。", objectType: 'tool' },
+            { level: 4, distractorCount: 45, totalItems: 52, title: "熱火烹飪：主食烘焙考驗",
+              story: "🔥 開始烹飪！麵包、蛋糕和披薩正在烘烤。但因為爐火太旺，七種**正在製作的主食**被火焰和蒸汽遮擋。請在充滿熱氣的烹飪區，辨識出這七個主食的顏色標籤。", objectType: 'food' },
+            { level: 5, distractorCount: 50, totalItems: 57, title: "完美上菜：最終的視覺校對",
+              story: "✨ 宴會即將開始，巴特要將七種不同的**精美菜餚**端上桌。請在華麗但擁擠的餐桌佈景中，找出這七種菜餚旁邊的顏色標籤，完成最後的配對！", objectType: 'food' },
+        ];
+        
+        const FINAL_STORY = {
+            title: "🎉 宴會大成功！",
+            message: "「太棒了！所有任務圓滿達成！」廚師巴特高興地喊道。因為你的高超專注力、仔細的觀察和快速的反應，所有食材、工具和菜餚都精準到位。現在，賓客們可以盡情享受這場由你和巴特共同努力完成的盛宴了！你是最棒的市場偵探！",
+            actionText: "🏆 重新開始第一關"
+        };
+        
+        // ------------------------------------------------------------------
+        // *** 移除自錄音檔 URL 配置，改為通用 TTS ***
+        // ------------------------------------------------------------------
+        
+        let challengeSequence = [];
+        let currentMapping = []; 
+        let userSelections = []; 
+        let userColorIndex = []; 
+        let currentLevel = 1; 
+        
+        // ----------------------------------------------------
+        // 2. DOM 元素取得
+        // ----------------------------------------------------
+
+        const mixedItemsContainerEl = document.getElementById('mixed-items-container');
+        const challengeInputEl = document.getElementById('challenge-input');
+        const checkButton = document.getElementById('check-button');
+        const resetButton = document.getElementById('reset-button');
+        const messageBoxEl = document.getElementById('message-box');
+        const successModalEl = document.getElementById('success-modal');
+        const modalContentEl = document.getElementById('modal-content');
+        const modalTitleEl = document.getElementById('modal-title');
+        const modalMessageEl = document.getElementById('modal-message');
+        const modalActionButton = document.getElementById('modal-action-button');
+        const modalTtsButton = document.getElementById('modal-tts-button'); 
+        const levelDisplayEl = document.getElementById('level-display');
+        const storyModalEl = document.getElementById('story-modal'); // 取得故事 Modal
+        const modalStoryTitleEl = document.getElementById('modal-story-title');
+        const modalStoryTextEl = document.getElementById('modal-story-text');
+        const modalStoryTtsButton = document.getElementById('story-modal-tts-button');
+        const startChallengeButton = document.getElementById('start-challenge-button');
+        const sourceTitleEl = document.getElementById('source-title');
+        const answerPanelEl = document.getElementById('answer-panel'); 
+        
+        // Audio Player 
+        let audioContext;
+
+        
+        // ----------------------------------------------------
+        // 3. 輔助工具 (TTS/音效/通用)
+        // ----------------------------------------------------
+        
+        // Regex to match most common Emojis/symbols
+        const EMOJI_REGEX = /(\p{Extended_Pictographic}|\p{Emoji_Component}|\p{Emoji_Modifier}|\p{Emoji_Modifier_Base})/gu;
+
+        /** 語詞朗讀 (使用瀏覽器內建 TTS，速度快，零延遲) */
+        function readWord(word) {
+            if ('speechSynthesis' in window) {
+                // 1. 過濾掉 Emoji/圖示
+                let cleanWord = word.replace(EMOJI_REGEX, '').trim(); 
+                
+                // 2. 移除 Level 3 故事中的圖示 (雖然 Level 3 已經是純文字，但為了安全再次過濾)
+                if (cleanWord.startsWith('🔪')) cleanWord = cleanWord.substring(1).trim();
+                
+                if (cleanWord === "") return; // 如果清空後是空字串則不報讀
+
+                // 在開始新的語音前，停止任何正在播放的語音
+                window.speechSynthesis.cancel(); 
+                
+                const utterance = new SpeechSynthesisUtterance(cleanWord);
+                utterance.lang = 'zh-TW'; 
+                // 調整語速和音調，使其聽起來清晰快速
+                utterance.rate = 1.5; 
+                utterance.pitch = 1.0; 
+                window.speechSynthesis.speak(utterance);
+            } else {
+                console.warn("瀏覽器不支援 Web Speech API。");
+            }
+        }
+
+        /** 播放破關音效 (通用成功音) */
+        function playSuccessSound() {
+            try {
+                // 由於 Tone.js 已經在 startChallenge() 中啟動，這裡只需調用
+                const synth = new Tone.MembraneSynth({
+                    pitchDecay: 0.05, octaves: 1, oscillator: { type: 'sine' },
+                    envelope: { attack: 0.001, decay: 0.2, sustain: 0.01, release: 0.2, level: 0.5 }
+                }).toDestination();
+                
+                synth.triggerAttackRelease("C5", "8n");
+                synth.triggerAttackRelease("G5", "8n", "+0.05");
+                synth.triggerAttackRelease("C6", "8n", "+0.1");
+
+            } catch (error) {
+                console.error("無法播放音效，可能是瀏覽器限制或 Tone.js 錯誤:", error);
+            }
+        }
+        
+        /** 播放最終勝利音效 (拍手/歡呼) */
+        function playFinalSuccessSound() {
+            try {
+                // 由於 Tone.js 已經在 startChallenge() 中啟動，這裡只需調用
+                // 模擬拍手/鼓掌的聲音
+                const clap = new Tone.NoiseSynth({
+                    noise: { type: 'pink' },
+                    envelope: { attack: 0.005, decay: 0.1, sustain: 0, release: 0.05 }
+                }).toDestination();
+
+                // 歡呼的音高
+                const cheerSynth = new Tone.MembraneSynth({
+                    envelope: { attack: 0.01, decay: 0.5, sustain: 0.01, release: 0.5 }
+                }).toDestination();
+
+                // 快速鼓掌序列
+                clap.triggerAttackRelease("8n", 0);
+                clap.triggerAttackRelease("8n", "+0.1");
+                clap.triggerAttackRelease("8n", "+0.2");
+
+                // 歡呼聲
+                cheerSynth.triggerAttackRelease("G4", "4n", "+0.3");
+                cheerSynth.triggerAttackRelease("C5", "4n", "+0.6");
+
+            } catch (error) {
+                console.error("無法播放最終音效:", error);
+                playSuccessSound(); // fallback
+            }
+        }
+
+
+        /** 隨機打亂陣列 */
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+        }
+        
+        // ----------------------------------------------------
+        // 4. 遊戲邏輯與函式
+        // ----------------------------------------------------
+
+        /** 產生本次挑戰的隨機目標序列和顏色配對 */
+        function generateChallengeAndMapping() {
+            const config = LEVEL_CONFIGS[currentLevel];
+            
+            // 根據關卡類型篩選目標物
+            const objectPool = OBJECT_DATA.filter(obj => obj.type === config.objectType);
+            
+            // 確保有七種目標物來配對七種顏色
+            let challengeTargets = [...objectPool];
+            while (challengeTargets.length < 7) {
+                 // 如果類型數量不足7，則從該類型中隨機抽取重複使用
+                challengeTargets.push(objectPool[Math.floor(Math.random() * objectPool.length)]);
+            }
+            challengeTargets = challengeTargets.slice(0, 7); // 取前七個
+
+            // 隨機打亂顏色
+            const shuffledColors = [...COLOR_OPTIONS];
+            shuffleArray(shuffledColors);
+
+            // 建立目標物 -> 顏色 的隨機配對
+            currentMapping = challengeTargets.map((item, index) => ({
+                emoji: item.emoji,
+                name: item.name,
+                correctHex: shuffledColors[index].hex,
+                mathLabel: null 
+            }));
+
+            // 建立挑戰序列 (右側的題目)
+            challengeSequence = [...currentMapping];
+            shuffleArray(challengeSequence); 
+        }
+        
+        /** 檢查新位置是否與現有的核心線索重疊 */
+        function isOverlapping(newPos, existingPositions, sceneWidth, sceneHeight) {
+            // 核心線索之間保持最小 35% 的距離 (確保視覺分離)
+            const minDistanceX = sceneWidth * 0.35; 
+            const minDistanceY = sceneHeight * 0.35;
+
+            // 轉換百分比位置到像素（近似值）
+            const newX = newPos.left * sceneWidth / 100;
+            const newY = newPos.top * sceneHeight / 100;
+            
+            for (const existing of existingPositions) {
+                const existingX = existing.left * sceneWidth / 100;
+                const existingY = existing.top * sceneHeight / 100;
+
+                const dx = Math.abs(newX - existingX);
+                const dy = Math.abs(newY - existingY);
+
+                if (dx < minDistanceX && dy < minDistanceY) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /** 渲染左側的複雜場景（資訊來源） */
+        function renderSourceDisplay() {
+            const config = LEVEL_CONFIGS[currentLevel];
+            const busySceneEl = document.getElementById('busy-scene');
+            const mixedItemsContainerEl = document.getElementById('mixed-items-container');
+            
+            // 獲取場景尺寸，用於防重疊計算
+            const sceneWidth = busySceneEl.clientWidth || 500;
+            const sceneHeight = busySceneEl.clientHeight || 500;
+
+            // 1. 隨機複雜背景
+            const randomPalette = BG_COLOR_PALETTES[currentLevel - 1] || BG_COLOR_PALETTES[0]; 
+             busySceneEl.style.backgroundImage = `repeating-linear-gradient(
+                ${Math.floor(Math.random() * 90)}deg,
+                ${randomPalette.secondary} 0,
+                ${randomPalette.secondary} 2px,
+                ${randomPalette.main} 2px,
+                ${randomPalette.main} 25px
+            )`;
+            busySceneEl.style.backgroundColor = randomPalette.main;
+            
+            mixedItemsContainerEl.innerHTML = '';
+            
+            const allItems = [];
+            
+            // 用來記錄已確定的核心線索位置
+            const confirmedCluePositions = [];
+
+            // 2. 核心線索 (帶圓圈的目標物) - 總共 7 組
+            currentMapping.forEach((item, index) => {
+                let pos;
+                let attempts = 0;
+                let validPosition = false;
+
+                // 嘗試找尋不重疊的位置 (最多嘗試 50 次)
+                while (!validPosition && attempts < 50) {
+                    pos = { 
+                        top: Math.random() * 80 + 10, // 避免邊緣
+                        left: Math.random() * 80 + 10 
+                    };
+                    pos.topPercent = `${pos.top}%`;
+                    pos.leftPercent = `${pos.left}%`;
+
+                    if (!isOverlapping(pos, confirmedCluePositions, sceneWidth, sceneHeight)) {
+                        validPosition = true;
+                    }
+                    attempts++;
+                }
+
+                if (validPosition) {
+                    confirmedCluePositions.push(pos);
+                } else {
+                    // 如果找不到不重疊位置，則強制使用一個隨機位置 (不完美但必須顯示)
+                    pos = { topPercent: `${Math.random() * 90 + 5}%`, leftPercent: `${Math.random() * 90 + 5}%` };
+                }
+                
+                const rotation = Math.floor(Math.random() * 180) - 90; 
+                const zIndex = Math.floor(Math.random() * 10) + 1; 
+                
+                const clueHtml = `
+                    <div class="fruit-clue distraction-item" style="
+                        top: ${pos.topPercent}; left: ${pos.leftPercent}; 
+                        transform: translate(-50%, -50%) rotate(${rotation}deg);
+                        font-size: 3rem; 
+                        z-index: ${zIndex + 10}; 
+                    ">
+                        <span class="fruit-emoji"> 
+                            ${item.emoji}
+                        </span>
+                        <div class="color-bubble" style="background-color: ${item.correctHex};"></div>
+                    </div>
+                `;
+                allItems.push(clueHtml);
+            });
+
+            // 3. 渲染干擾物
+            const distractorCount = config.totalItems - currentMapping.length;
+            for (let i = 0; i < distractorCount; i++) {
+                const useChallengeTargetAsDistractor = Math.random() < 0.2; 
+                
+                let emoji;
+                let hasExtraLabel = false; 
+
+                if (useChallengeTargetAsDistractor) {
+                    // 使用當前挑戰目標的 Emoji 作為干擾物
+                    const targetPool = OBJECT_DATA.filter(obj => obj.type === config.objectType);
+                    const randomTarget = targetPool[Math.floor(Math.random() * targetPool.length)];
+                    emoji = randomTarget.emoji;
+                } else {
+                    emoji = DISTRACTOR_POOL[Math.floor(Math.random() * DISTRACTOR_POOL.length)];
+                }
+                
+                // 移除 Level 2 的數字干擾
+                if (currentLevel === 2 && Math.random() < 0.2) {
+                    hasExtraLabel = false; // 確保不產生帶數字的干擾物
+                    // 保留點心類的 emoji 作為干擾，但不帶數字標籤
+                    const targetPool = OBJECT_DATA.filter(obj => obj.type === 'math');
+                    const randomTarget = targetPool[Math.floor(Math.random() * targetPool.length)];
+                    emoji = randomTarget.emoji;
+                }
+
+
+                const pos = { 
+                    top: `${Math.random() * 90 + 5}%`, 
+                    left: `${Math.random() * 90 + 5}%` 
+                };
+
+                const rotation = Math.floor(Math.random() * 180) - 90; 
+                const size = Math.floor(Math.random() * 3) + 2; 
+                const zIndex = Math.floor(Math.random() * 10) + 1; 
+                
+                // 確保干擾物與核心線索使用相似的 z-index
+                const distractorZIndex = zIndex; 
+
+                const distractorHtml = `
+                    <span class="distraction-item" style="
+                        top: ${pos.top}; left: ${pos.left}; 
+                        transform: translate(-50%, -50%) rotate(${rotation}deg); 
+                        font-size: ${size}rem;
+                        z-index: ${distractorZIndex}; 
+                    ">
+                        ${emoji}
+                    </span>
+                `;
+                allItems.push(distractorHtml);
+            }
+            
+            shuffleArray(allItems); 
+            mixedItemsContainerEl.innerHTML = allItems.join('');
+
+            levelDisplayEl.textContent = config.title;
+            sourceTitleEl.textContent = `場景：${config.title}`;
+        }
+
+        /** 渲染右側的挑戰區與單色滑動選單 */
+        function renderChallengeInput() {
+            challengeInputEl.innerHTML = '';
+            userSelections = challengeSequence.map(() => COLOR_OPTIONS[0].hex); // 預設為第一個顏色
+            userColorIndex = challengeSequence.map(() => 0); // 預設索引為 0
+
+            challengeSequence.forEach((target, index) => {
+                const row = document.createElement('div');
+                row.id = `input-row-${index}`;
+                // 修正： space-y-2 sm:space-y-0 sm:space-x-4 p-3  -> space-y-1 sm:space-y-0 sm:space-x-2 p-2 
+                row.className = 'flex flex-col sm:flex-row items-center justify-between space-y-1 sm:space-y-0 sm:space-x-2 p-2 bg-white transition-colors duration-300 rounded-xl shadow-lg border border-gray-200';
+                
+                const targetLabel = document.createElement('div');
+                targetLabel.className = 'target-label flex items-center space-x-3 w-full sm:w-auto';
+                
+                // 右側只顯示目標物 Emoji，不顯示文字名稱
+                targetLabel.innerHTML = `
+                    <span class="text-3xl">${target.emoji}</span> <!-- 修正：移除 sm:text-4xl，統一縮小 -->
+                `;
+                
+                // 新增：目標物點擊語音報讀 (使用內建 TTS)
+                targetLabel.addEventListener('click', () => {
+                    readWord(target.name);
+                });
+
+
+                const pickerWrapper = document.createElement('div');
+                pickerWrapper.className = 'single-color-picker';
+
+                // 左箭頭
+                const leftArrow = document.createElement('button');
+                leftArrow.className = 'arrow-button';
+                leftArrow.textContent = '◀';
+                leftArrow.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    navigateColor(index, -1);
+                });
+
+                // 顏色圓圈
+                const colorCircle = document.createElement('button');
+                colorCircle.id = `picker-circle-${index}`;
+                colorCircle.className = 'color-circle selected';
+                colorCircle.style.backgroundColor = COLOR_OPTIONS[0].hex;
+                
+                // 右箭頭
+                const rightArrow = document.createElement('button');
+                rightArrow.className = 'arrow-button';
+                rightArrow.textContent = '▶';
+                rightArrow.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    navigateColor(index, 1);
+                });
+                
+                // 觸控滑動事件處理 (Swiping for mobile)
+                let startX;
+                colorCircle.addEventListener('touchstart', (e) => {
+                    startX = e.touches[0].clientX;
+                }, {passive: true}); 
+
+                colorCircle.addEventListener('touchend', (e) => {
+                    const endX = e.changedTouches[0].clientX;
+                    const diff = endX - startX;
+                    // 提高滑動閾值到 40px，讓點擊和滑動能區分
+                    if (diff > 40) {
+                        navigateColor(index, -1); // Swipe right (diff > 0) -> move to previous color (index -1)
+                    } else if (diff < -40) {
+                        navigateColor(index, 1); // Swipe left (diff < 0) -> move to next color (index +1)
+                    }
+                });
+
+
+                pickerWrapper.appendChild(leftArrow);
+                pickerWrapper.appendChild(colorCircle);
+                pickerWrapper.appendChild(rightArrow);
+
+                row.appendChild(targetLabel);
+                row.appendChild(pickerWrapper);
+                challengeInputEl.appendChild(row);
+            });
+        }
+
+        /** 導航顏色選擇 (左右切換) */
+        function navigateColor(index, direction) {
+            let currentIndex = userColorIndex[index];
+            currentIndex = (currentIndex + direction) % COLOR_OPTIONS.length;
+            if (currentIndex < 0) {
+                currentIndex = COLOR_OPTIONS.length - 1;
+            }
+
+            userColorIndex[index] = currentIndex;
+            const selectedHex = COLOR_OPTIONS[currentIndex].hex;
+            userSelections[index] = selectedHex;
+            
+            const circle = document.getElementById(`picker-circle-${index}`);
+            circle.style.backgroundColor = selectedHex;
+            circle.className = 'color-circle selected'; 
+            messageBoxEl.classList.add('hidden'); 
+        }
+
+
+        /** 顯示破關 Modal */
+        function showSuccessModal() {
+            const isFinalLevel = currentLevel === (LEVEL_CONFIGS.length - 1);
+            
+            // 清除右側面板的錯誤背景色
+            answerPanelEl.classList.remove('bg-red-200'); // 移除較深的錯誤色
+            answerPanelEl.classList.add('bg-blue-50');
+            
+            // 重置 modal TTS 按鈕狀態
+            modalTtsButton.disabled = false;
+            modalTtsButton.textContent = '🔊 報讀故事';
+
+
+            if (isFinalLevel) {
+                modalTitleEl.textContent = FINAL_STORY.title;
+                modalMessageEl.textContent = FINAL_STORY.message;
+                modalActionButton.textContent = FINAL_STORY.actionText;
+                modalActionButton.onclick = () => {
+                    currentLevel = 1;
+                    closeSuccessModalAndInitGame();
+                };
+                playFinalSuccessSound(); // 播放最終勝利音效
+                readWord(FINAL_STORY.message); // 使用內建 TTS 報讀最終故事
+                
+            } else {
+                modalTitleEl.textContent = `✅ ${LEVEL_CONFIGS[currentLevel].title} - 完成！`;
+                modalMessageEl.textContent = `太棒了！您已在複雜的場景中成功提取所有資訊。巴特需要你的幫助完成下一項任務！`;
+                modalActionButton.textContent = `🚀 進入下一關 (Level ${currentLevel + 1})`;
+                modalActionButton.onclick = levelUp;
+                playSuccessSound(); // 播放單關成功音效
+            }
+
+            checkButton.disabled = true;
+            successModalEl.classList.add('open');
+            modalContentEl.classList.remove('scale-90');
+            modalContentEl.classList.add('scale-100');
+        }
+
+
+        /** 檢查答案並提供反饋 */
+        function checkAnswer() {
+            messageBoxEl.classList.remove('hidden');
+            answerPanelEl.classList.remove('bg-red-200'); // 檢查前先移除錯誤背景色
+            answerPanelEl.classList.add('bg-blue-50');
+
+            let correctCount = 0;
+            let allCorrect = true;
+
+            for (let i = 0; i < challengeSequence.length; i++) {
+                // 找到對應的目標物 (基於 Emoji)
+                const challengeEmoji = challengeSequence[i].emoji;
+                // 注意：這裡必須使用 find，因為我們在 generateChallengeAndMapping 中為數學關卡添加了額外的 mathLabel 屬性
+                const correctItem = currentMapping.find(item => item.emoji === challengeEmoji);
+                const correctHex = correctItem ? correctItem.correctHex : null;
+
+                const userHex = userSelections[i];
+                const circle = document.getElementById(`picker-circle-${i}`);
+                const rowEl = document.getElementById(`input-row-${i}`);
+                
+                // 重設單行狀態
+                circle.classList.remove('error', 'correct');
+                rowEl.classList.remove('bg-red-300'); // 移除單行錯誤顏色
+                rowEl.classList.add('bg-white'); // 確保單行預設是白色
+
+                if (userHex === correctHex) {
+                    correctCount++;
+                    circle.classList.add('correct');
+                    circle.classList.remove('error');
+                } else {
+                    allCorrect = false;
+                    circle.classList.add('error');
+                    circle.classList.remove('correct');
+                    rowEl.classList.remove('bg-white'); // 移除白色
+                    rowEl.classList.add('bg-red-300'); // 修正：將更明顯的紅色標示加到單行
+                }
+            }
+
+            if (allCorrect) {
+                showSuccessModal();
+            } else {
+                // 答錯 - 顯示底部訊息，並將右側整個面板的背景變成更深的紅色
+                answerPanelEl.classList.remove('bg-blue-50');
+                answerPanelEl.classList.add('bg-red-200'); // 錯誤時，將整個右側面板變為較深的淺紅色
+
+                messageBoxEl.className = 'mt-6 p-4 text-center text-xl font-semibold rounded-lg border-2 bg-red-400 border-red-600 text-white'; // 訊息框使用更深的紅，白色字
+                messageBoxEl.textContent = `❌ 答錯了！您答對了 ${correctCount} 題。請再仔細觀察左側被干擾的場景！`;
+            }
+        }
+        
+        /** 隱藏破關畫面並重新初始化遊戲 */
+        function closeSuccessModalAndInitGame() {
+            successModalEl.classList.remove('open');
+            modalContentEl.classList.remove('scale-100');
+            modalContentEl.classList.add('scale-90');
+            initGame();
+        }
+        
+        /** 進入下一關 */
+        function levelUp() {
+            if (currentLevel < (LEVEL_CONFIGS.length - 1)) {
+                currentLevel++;
+                closeSuccessModalAndInitGame();
+            } else {
+                // 如果已經是最後一關，則重新開始
+                currentLevel = 1; 
+                closeSuccessModalAndInitGame();
+            }
+        }
+        
+        /** 重玩本關 (Reset Button Handler) */
+        function resetCurrentLevel() {
+             closeSuccessModalAndInitGame();
+        }
+        
+        /** 顯示故事 Modal */
+        function showStoryModal(level) {
+            const config = LEVEL_CONFIGS[level];
+            modalStoryTitleEl.textContent = `Level ${level}: ${config.title}`;
+            modalStoryTextEl.textContent = config.story;
+            storyModalEl.classList.add('open');
+        }
+        
+        /** 隱藏故事 Modal */
+        function hideStoryModal() {
+            storyModalEl.classList.remove('open');
+            // 確保停止任何正在播放的 TTS
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+            }
+        }
+
+        /** 初始化或重設遊戲 */
+        function initGame() {
+            if (currentLevel < 1) currentLevel = 1;
+            if (currentLevel >= LEVEL_CONFIGS.length) currentLevel = 1; // 循環從第一關開始
+
+            generateChallengeAndMapping(); 
+            userSelections = challengeSequence.map(() => COLOR_OPTIONS[0].hex); 
+            userColorIndex = challengeSequence.map(() => 0);
+            
+            // 禁用互動直到故事 Modal 關閉
+            checkButton.disabled = true;
+            resetButton.disabled = true;
+            messageBoxEl.classList.add('hidden');
+            
+            successModalEl.classList.remove('open'); 
+            
+            // 確保面板顏色正確
+            answerPanelEl.classList.remove('bg-red-200');
+            answerPanelEl.classList.add('bg-blue-50');
+            
+            // 渲染畫面，但先不開放互動
+            renderSourceDisplay();
+            renderChallengeInput();
+            
+            // 顯示故事 Modal
+            showStoryModal(currentLevel);
+
+            console.log(`遊戲已初始化至關卡 ${currentLevel}.`);
+        }
+        
+        /** 啟動挑戰 (從故事 Modal 點擊後觸發) */
+        function startChallenge() {
+            hideStoryModal();
+            checkButton.disabled = false;
+            resetButton.disabled = false;
+
+            // 在首次用戶互動時，強制啟動 Tone.js AudioContext
+            try {
+                Tone.start();
+                console.log("Tone.js AudioContext started.");
+            } catch (e) {
+                console.error("Failed to start Tone.js AudioContext:", e);
+            }
+        }
+
+        
+        // ----------------------------------------------------
+        // 5. 事件監聽器與啟動
+        // ----------------------------------------------------
+
+        checkButton.addEventListener('click', checkAnswer);
+        resetButton.addEventListener('click', resetCurrentLevel);
+        
+        // 故事 Modal 的 TTS 按鈕 (使用內建 TTS)
+        modalStoryTtsButton.addEventListener('click', () => {
+             const story = modalStoryTextEl.textContent;
+             if(story) readWord(story);
+        });
+
+        // 啟動挑戰按鈕
+        startChallengeButton.addEventListener('click', startChallenge);
+        
+        // 成功 Modal 的 TTS 按鈕 (最終故事) (使用內建 TTS)
+        modalTtsButton.addEventListener('click', () => {
+             const message = modalMessageEl.textContent;
+             if (message) readWord(message);
+        });
+
+        // 首次載入遊戲
+        window.onload = initGame;
+    </script>
+</body>
+</html>
